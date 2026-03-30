@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>이온의 이동 관찰 가상 실험 - 단계별 수행판</title>
+    <style>
+        /* 텍스트 선택 및 기본 드래그 방지 */
+        * {
+            -webkit-user-drag: none;
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Malgun Gothic', sans-serif;
+            background-color: #f4f7f6;
+            margin: 0;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            height: 100vh;
+            height: 100dvh;
+            overflow: hidden; /* 어떤 화면이든 스크롤 방지 (한 화면에 고정) */
+        }
+        
+        h1 { color: #2c3e50; margin: 5px 0; font-size: 22px; text-align: center; }
+
+        /* 상태 메세지 (가로로 길게 배치) */
+        .instruction-toast {
+            background-color: #2c3e50; color: #f1c40f; padding: 10px 20px;
+            border-radius: 20px; font-weight: bold; font-size: 15px; 
+            margin-bottom: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            text-align: center; width: 100%; max-width: 1100px;
+        }
+
+        /* 전체 레이아웃 (무조건 좌-중-우 가로 3단 배치 유지) */
+        .main-layout {
+            display: flex;
+            flex-wrap: nowrap; /* 무조건 1줄 배치 강제 */
+            gap: 20px;
+            align-items: center; /* 세로 중앙 정렬 */
+            justify-content: center;
+            width: 100%;
+            flex: 1; /* 남은 높이 채우기 */
+        }
+
+        /* 1. 좌측 인벤토리 */
+        .sidebar {
+            background-color: white; padding: 15px; border-radius: 15px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.1); display: flex;
+            flex-direction: column; gap: 10px; align-items: center;
+            width: 160px; flex-shrink: 0; 
+        }
+
+        button.reset-btn {
+            padding: 10px; background-color: #e74c3c; color: white;
+            border: none; border-radius: 8px; font-size: 14px; font-weight: bold;
+            cursor: pointer; width: 100%; transition: background 0.3s;
+        }
+        button.reset-btn:hover { background-color: #c0392b; }
+
+        .item-container {
+            text-align: center; cursor: grab; padding: 8px;
+            border: 2px dashed transparent; border-radius: 10px;
+            touch-action: none;
+            width: 100%;
+        }
+        .item-container:active { background-color: #f8f9fa; border-color: #bdc3c7;}
+        
+        .icon-paper {
+            width: 50px; height: 35px; background-color: #fdfdfd;
+            border: 3px dashed #95a5a6; margin: 0 auto 5px; border-radius: 5px;
+            pointer-events: none;
+        }
+
+        .beaker {
+            width: 50px; height: 65px; border: 4px solid #7f8c8d; border-top: none;
+            border-radius: 0 0 12px 12px; position: relative; margin: 0 auto 5px;
+            background-color: rgba(255,255,255,0.8); overflow: hidden; pointer-events: none;
+        }
+        .liquid { position: absolute; bottom: 0; width: 100%; height: 60%; }
+        .liq-kno3 { background-color: rgba(189, 195, 199, 0.3); } 
+        .liq-cuso4 { background-color: rgba(52, 152, 219, 0.85); } 
+        .liq-kmno4 { background-color: rgba(155, 89, 182, 0.85); } 
+        
+        .item-label { font-weight: bold; font-size: 13px; color: #2c3e50; line-height: 1.3; pointer-events: none;}
+
+        /* 2. 스케일링을 위한 래퍼 (이 영역이 JS에 의해 동적으로 줄어듭니다) */
+        .exp-wrapper {
+            position: relative; width: 750px; height: 550px; flex-shrink: 0;
+            display: flex; justify-content: center; align-items: center;
+        }
+
+        /* 중앙 실험 영역 (내부 좌표는 750x550 고정) */
+        .experiment-area {
+            position: absolute; width: 750px; height: 550px; 
+            background-color: #ecf0f1; border: 4px solid #bdc3c7; border-radius: 20px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.15); overflow: hidden;
+            background-image: radial-gradient(#dfe6e9 1px, transparent 1px);
+            background-size: 25px 25px; transform-origin: center; /* 줌 기준점 중앙 */
+            touch-action: none; 
+        }
+
+        #wire-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; }
+        line { stroke-width: 8; stroke-linecap: round; transition: stroke-width 0.2s; }
+        #wire-plus { stroke: #c0392b; }
+        #wire-minus { stroke: #2980b9; }
+        .power-on line { stroke-width: 10; filter: drop-shadow(0 0 5px rgba(0,0,0,0.4)); }
+        
+        .wire-label { font-size: 18px; font-weight: 900; opacity: 0; text-anchor: middle; transition: opacity 0.2s; }
+        .label-plus { fill: #c0392b; }
+        .label-minus { fill: #2980b9; }
+        .wire-label.show { opacity: 1; }
+
+        .power-supply {
+            position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+            width: 380px; height: 140px; background-color: #34495e; border-radius: 15px;
+            color: white; display: flex; flex-direction: column; align-items: center;
+            justify-content: center; z-index: 10; box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+            transition: background-color 0.3s;
+        }
+        
+        .power-switch-btn {
+            margin-top: 5px; padding: 6px 16px; background-color: #95a5a6; color: white;
+            border: 2px solid #7f8c8d; border-radius: 20px; font-size: 15px; font-weight: bold;
+            cursor: pointer; transition: all 0.3s; margin-bottom: 5px;
+        }
+        .power-switch-btn.ready { background-color: #f1c40f; color: #333; border-color: #f39c12; animation: pulse 1.5s infinite; }
+        .power-supply.on { background-color: #27ae60; box-shadow: 0 0 25px #27ae60; }
+        .power-supply.on .power-switch-btn { background-color: #2ecc71; border-color: #27ae60; animation: none; color: white;}
+        
+        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); } }
+
+        /* 전선 단자 UI */
+        .terminals { display: flex; justify-content: space-evenly; width: 100%; margin-top: 5px; }
+        .terminal-group { 
+            display: flex; flex-direction: row; align-items: center; gap: 8px; 
+            background-color: rgba(255,255,255,0.15); padding: 5px 15px; border-radius: 25px;
+            cursor: pointer; touch-action: none; border: 1px solid rgba(255,255,255,0.2);
+            transition: background-color 0.2s;
+        }
+        .terminal-group:active { background-color: rgba(255,255,255,0.3); }
+        .term-label { font-size: 15px; font-weight: bold; color: #ecf0f1; pointer-events: none; }
+        .terminal { width: 22px; height: 22px; border-radius: 50%; position: relative; pointer-events: none;}
+        
+        .term-plus { background-color: #e74c3c; box-shadow: 0 0 10px #e74c3c; border: 2px solid #fff; }
+        .term-minus { background-color: #3498db; box-shadow: 0 0 10px #3498db; border: 2px solid #fff; }
+
+        /* 페트리 접시 */
+        .petri-dish {
+            position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+            width: 640px; height: 280px; border: 6px solid #7f8c8d; border-radius: 20px;
+            background-color: rgba(255,255,255,0.6); display: flex; align-items: center;
+            justify-content: center; z-index: 1; box-shadow: inset 0 0 20px rgba(0,0,0,0.1);
+        }
+        
+        .petri-label {
+            position: absolute; top: -16px; left: 30px; background-color: #34495e; color: white;
+            padding: 5px 15px; font-size: 15px; font-weight: bold; border-radius: 8px; z-index: 10;
+        }
+
+        .filter-paper {
+            width: 500px; height: 200px; border: 3px dashed #95a5a6; background-color: #fdfdfd;
+            position: relative; transition: all 0.5s; overflow: hidden; border-radius: 10px;
+            opacity: 0; pointer-events: none;
+        }
+        .filter-paper.placed { opacity: 1; pointer-events: auto; }
+        .filter-paper.wet { background-color: #e8f4f8; border-style: solid; }
+
+        .electrode {
+            position: absolute; width: 45px; height: 240px; background-color: #bdc3c7;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            font-weight: 900; font-size: 22px; color: #333; line-height: 1.4; border-radius: 10px;
+            z-index: 6; border: 3px solid #7f8c8d; transition: all 0.3s;
+        }
+        .elec-plus { left: 10px; } .elec-minus { right: 10px; }
+        .elec-plus.active { background-color: #fadbd8; border-color: #c0392b; color: #c0392b;}
+        .elec-minus.active { background-color: #d4e6f1; border-color: #2980b9; color: #2980b9;}
+
+        .drop-center {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 50px; height: 50px; border-radius: 50%; opacity: 0; transition: opacity 0.5s; z-index: 2;
+        }
+        .drop-center.show { opacity: 1; }
+        .drop-blue { background-color: #3498db; box-shadow: 0 0 25px 12px #3498db; }
+        .drop-purple { background-color: #9b59b6; box-shadow: 0 0 25px 12px #9b59b6; }
+        
+        .color-spread { position: absolute; top: 50%; transform: translateY(-50%); height: 120px; width: 0px; transition: width 4s ease-in-out; z-index: 1; filter: blur(15px); }
+        .spread-right { left: 50%; background-color: rgba(52, 152, 219, 0.75); border-radius: 0 60px 60px 0; }
+        .spread-right.active { width: 220px; } 
+        .spread-left { right: 50%; background-color: rgba(155, 89, 182, 0.75); border-radius: 60px 0 0 60px; }
+        .spread-left.active { width: 220px; } 
+
+        .dynamic-ion {
+            position: absolute; font-size: 16px; font-weight: bold; background: rgba(255, 255, 255, 0.95);
+            padding: 4px 8px; border-radius: 8px; border: 2px solid; transform: translate(-50%, -50%);
+            transition: left 4s ease-in-out, top 4s ease-in-out, opacity 0.5s; opacity: 0; z-index: 10; pointer-events: none; box-shadow: 0 3px 6px rgba(0,0,0,0.2);
+        }
+        .ion-cu { color: #2980b9; border-color: #2980b9; } .ion-so4 { color: #7f8c8d; border-color: #bdc3c7; }
+        .ion-k { color: #7f8c8d; border-color: #bdc3c7; } .ion-mno4 { color: #8e44ad; border-color: #8e44ad; }
+        .ion-no3 { color: #7f8c8d; border-color: #bdc3c7; }
+        sup { font-size: 0.6em; } sub { font-size: 0.6em; }
+
+        /* 3. 우측 체크리스트 영역 */
+        .checklist {
+            background-color: white; padding: 15px; border-radius: 15px; box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+            width: 250px; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; 
+        }
+        .checklist h3 { margin: 0 0 5px 0; color: #2c3e50; font-size: 18px; border-bottom: 2px solid #ecf0f1; padding-bottom: 8px;}
+        .step { display: flex; align-items: flex-start; gap: 8px; font-size: 14.5px; color: #7f8c8d; line-height: 1.3;}
+        .step.active { color: #2c3e50; font-weight: bold; }
+        .step.done { color: #27ae60; text-decoration: line-through; }
+        .check-box { width: 18px; height: 18px; border: 2px solid #bdc3c7; border-radius: 4px; display: inline-block; flex-shrink: 0; position: relative;}
+        .step.done .check-box { background-color: #27ae60; border-color: #27ae60; }
+        .step.done .check-box::after { content: '✔'; color: white; position: absolute; top: -3px; left: 2px; font-size: 14px;}
+        
+        /* 💡 미디어 쿼리(모바일 전환 로직) 완전히 삭제됨 */
+    </style>
+</head>
+<body>
+
+    <h1>🔬 이온의 이동 관찰 가상 실험</h1>
+    <div id="toastMessage" class="instruction-toast">1단계: 아래 인벤토리에서 '거름종이'를 페트리 접시 위로 드래그 하세요.</div>
+    
+    <div class="main-layout">
+        <!-- 1. 좌측 인벤토리 영역 -->
+        <div class="sidebar">
+            <button class="reset-btn" onclick="resetExperiment()">처음부터 다시하기</button>
+            <div class="item-container" data-type="paper">
+                <div class="icon-paper"></div>
+                <div class="item-label">거름종이<br>(드래그)</div>
+            </div>
+            <div class="item-container" data-type="kno3">
+                <div class="beaker"><div class="liquid liq-kno3"></div></div>
+                <div class="item-label">질산 칼륨 수용액<br>(전해질 역할)</div>
+            </div>
+            <div class="item-container" data-type="cuso4">
+                <div class="beaker"><div class="liquid liq-cuso4"></div></div>
+                <div class="item-label">황산 구리(Ⅱ)<br>수용액</div>
+            </div>
+            <div class="item-container" data-type="kmno4">
+                <div class="beaker"><div class="liquid liq-kmno4"></div></div>
+                <div class="item-label">과망가니즈산 칼륨<br>수용액</div>
+            </div>
+        </div>
+
+        <!-- 2. 중앙 실험 영역 (동적 스케일링 래퍼) -->
+        <div class="exp-wrapper" id="expWrapper">
+            <div class="experiment-area" id="experimentArea">
+                <svg id="wire-layer">
+                    <line id="wire-plus" x1="0" y1="0" x2="0" y2="0" stroke-width="0" />
+                    <line id="wire-minus" x1="0" y1="0" x2="0" y2="0" stroke-width="0" />
+                    <text id="wire-text-plus" class="wire-label label-plus" x="0" y="0">(+) 연결선</text>
+                    <text id="wire-text-minus" class="wire-label label-minus" x="0" y="0">(-) 연결선</text>
+                </svg>
+
+                <div class="power-supply" id="powerSupply">
+                    <div style="font-weight: bold; font-size: 20px;" id="powerText">전원 장치 (OFF)</div>
+                    <button class="power-switch-btn" id="powerBtn" onclick="togglePower()">전원 켜기 (15V)</button>
+                    <div class="terminals">
+                        <div class="terminal-group" id="term-group-plus">
+                            <div class="terminal term-plus" id="term-plus"></div>
+                            <div class="term-label">(+) 전선 당기기</div>
+                        </div>
+                        <div class="terminal-group" id="term-group-minus">
+                            <div class="terminal term-minus" id="term-minus"></div>
+                            <div class="term-label">(-) 전선 당기기</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="petri-dish" id="petriDish">
+                    <div class="petri-label">🧫 사각 페트리 접시</div> 
+                    <div class="electrode elec-plus" id="elec-plus">(+)<br>전<br>극</div>
+                    <div class="electrode elec-minus" id="elec-minus">(-)<br>전<br>극</div>
+                    
+                    <div class="filter-paper" id="filterPaper">
+                        <div id="spreadRight" class="color-spread spread-right"></div>
+                        <div id="spreadLeft" class="color-spread spread-left"></div>
+                        <div id="drop" class="drop-center"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. 우측 체크리스트 영역 -->
+        <div class="checklist">
+            <h3>📝 실험 진행 순서</h3>
+            <div class="step active" id="step1"><div class="check-box"></div>1. 페트리 접시에 전극 확인</div>
+            <div class="step" id="step2"><div class="check-box"></div>2. 거름종이 올리기</div>
+            <div class="step" id="step3"><div class="check-box"></div>3. 질산 칼륨 적시기</div>
+            <div class="step" id="step4"><div class="check-box"></div>4. (+)(-) 전선 연결하기</div>
+            <div class="step" id="step5"><div class="check-box"></div>5. 15V 전원 켜기</div>
+            <div class="step" id="step6"><div class="check-box"></div>6. 시료 떨어뜨려 관찰하기</div>
+        </div>
+    </div>
+
+    <script>
+        // --- 1. 무조건 가로 모드 유지 및 크롬북 자동 스케일링 로직 ---
+        let currentScale = 1;
+        function resizeApp() {
+            const wrapper = document.getElementById('expWrapper');
+            const area = document.getElementById('experimentArea');
+            
+            // 패널들의 총 너비 (좌측 160 + 우측 250 + 갭 및 여백 여유분 약 80 = 490)
+            const availableWidth = window.innerWidth - 490;
+            // 상단 제목, 토스트 메세지, 하단 여백의 총 높이 여유분 = 140
+            const availableHeight = window.innerHeight - 140;
+
+            const scaleW = availableWidth / 750;
+            const scaleH = availableHeight / 550;
+            
+            // 화면 분기를 없애고 무조건 남은 공간에 맞게 스케일을 조정합니다.
+            currentScale = Math.min(scaleW, scaleH);
+            
+            // 최대 1배율까지만 커지도록 제한 (최소 크기 제한은 두지 않아 작은 기기에서도 무조건 줄어들며 1줄로 나옵니다)
+            if (currentScale > 1) currentScale = 1;
+            if (currentScale < 0.2) currentScale = 0.2; // 에러 방지 최소 스케일
+
+            // CSS Transform으로 스케일 변경
+            area.style.transform = `translate(-50%, -50%) scale(${currentScale})`;
+            area.style.left = '50%';
+            area.style.top = '50%';
+            
+            // Wrapper 크기를 스케일된 크기에 맞춰 주변 UI가 빈틈없이 당겨지도록 조정
+            wrapper.style.width = `${750 * currentScale}px`;
+            wrapper.style.height = `${550 * currentScale}px`;
+        }
+        
+        window.addEventListener('resize', resizeApp);
+        window.addEventListener('load', resizeApp);
+
+        // --- 2. 실험 상태 변수 ---
+        let state = { hasPaper: false, isWet: false, wirePlusConnected: false, wireMinusConnected: false, isPowerOn: false, currentSolution: 'none', step: 2 };
+        const toast = document.getElementById('toastMessage');
+        document.getElementById('step1').classList.replace('active', 'done');
+        document.getElementById('step2').classList.add('active');
+
+        function showToast(msg) { toast.innerText = msg; }
+        function completeStep(stepNum, nextMsg) {
+            document.getElementById('step' + stepNum).classList.replace('active', 'done');
+            if(stepNum < 6) document.getElementById('step' + (stepNum + 1)).classList.add('active');
+            showToast(nextMsg);
+            state.step = stepNum + 1;
+        }
+
+        // --- 3. 범용 드래그 앤 드롭 로직 (마우스/터치) ---
+        let draggedType = null;
+        let ghostEl = null;
+
+        function getEventPos(e) {
+            if (e.touches && e.touches.length > 0) return { x: e.touches[0].clientX, y: e.touches[0].clientY, pageX: e.touches[0].pageX, pageY: e.touches[0].pageY };
+            if (e.changedTouches && e.changedTouches.length > 0) return { x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY, pageX: e.changedTouches[0].pageX, pageY: e.changedTouches[0].pageY };
+            return { x: e.clientX, y: e.clientY, pageX: e.pageX, pageY: e.pageY };
+        }
+
+        function startDrag(e, type, element) {
+            if (e.type === 'mousedown' && e.button !== 0) return;
+            draggedType = type;
+            ghostEl = element.cloneNode(true);
+            ghostEl.style.position = 'absolute';
+            ghostEl.style.opacity = '0.8';
+            ghostEl.style.pointerEvents = 'none';
+            ghostEl.style.zIndex = '9999';
+            document.body.appendChild(ghostEl);
+            moveGhost(e);
+        }
+
+        function moveGhost(e) {
+            if (!ghostEl) return;
+            const pos = getEventPos(e);
+            ghostEl.style.left = (pos.pageX - ghostEl.offsetWidth / 2) + 'px';
+            ghostEl.style.top = (pos.pageY - ghostEl.offsetHeight / 2) + 'px';
+        }
+
+        function endDrag(e) {
+            if (!ghostEl) return;
+            const pos = getEventPos(e);
+            ghostEl.style.display = 'none';
+            const elemBelow = document.elementFromPoint(pos.x, pos.y);
+            document.body.removeChild(ghostEl);
+            ghostEl = null;
+
+            if (elemBelow) {
+                const petri = elemBelow.closest('#petriDish');
+                const paper = elemBelow.closest('#filterPaper');
+                if (draggedType === 'paper' && petri) { processDrop('paper'); }
+                else if ((draggedType === 'kno3' || draggedType === 'cuso4' || draggedType === 'kmno4') && (paper || petri)) {
+                    processDrop(draggedType);
+                }
+            }
+            draggedType = null;
+        }
+
+        document.querySelectorAll('.item-container').forEach(item => {
+            item.addEventListener('mousedown', function(e) { startDrag(e, this.dataset.type, this); });
+            item.addEventListener('touchstart', function(e) { e.preventDefault(); startDrag(e, this.dataset.type, this); }, { passive: false });
+        });
+
+        document.addEventListener('mousemove', function(e) { if(ghostEl) { e.preventDefault(); moveGhost(e); } }, { passive: false });
+        document.addEventListener('touchmove', function(e) { if(ghostEl) { e.preventDefault(); moveGhost(e); } }, { passive: false });
+        document.addEventListener('mouseup', endDrag);
+        document.addEventListener('touchend', endDrag);
+
+        function processDrop(type) {
+            if (type === 'paper' && !state.hasPaper) {
+                state.hasPaper = true;
+                document.getElementById('filterPaper').classList.add('placed');
+                completeStep(2, "3단계: 질산 칼륨 수용액을 거름종이에 떨어뜨리세요.");
+            } else if (type === 'paper' && state.hasPaper) {
+                alert("이미 거름종이가 놓여 있습니다.");
+            } else if (type === 'kno3') {
+                if (!state.hasPaper) { alert("먼저 페트리 접시 위에 거름종이를 놓아주세요!"); return; }
+                if(state.isWet) { alert("이미 질산 칼륨 수용액으로 적셨습니다."); return; }
+                state.isWet = true;
+                document.getElementById('filterPaper').classList.add('wet');
+                spawnBackgroundIons(); 
+                completeStep(3, "4단계: 전원 장치에서 (+), (-) 전선을 드래그하여 전극에 연결하세요.");
+            } else if (type === 'cuso4' || type === 'kmno4') {
+                if (!state.hasPaper) { alert("먼저 거름종이를 놓아주세요!"); return; }
+                if (!state.isWet) { alert("먼저 질산 칼륨 수용액을 부어 전류가 흐르도록 해야 합니다!"); return; }
+                if (state.step < 6) { alert("전선을 연결하고 전원을 먼저 켜주세요!"); return; }
+                
+                state.currentSolution = type;
+                document.getElementById('spreadRight').classList.remove('active');
+                document.getElementById('spreadLeft').classList.remove('active');
+                document.querySelectorAll('.sample-ion').forEach(el => el.remove());
+
+                const dropEl = document.getElementById('drop');
+                dropEl.className = type === 'cuso4' ? 'drop-center drop-blue show' : 'drop-center drop-purple show';
+
+                completeStep(6, "관찰: 이온이 어느 극으로 이동하는지 관찰하세요! (다른 시료 반복 가능)");
+                spawnSampleIons();
+            }
+        }
+
+        // --- 4. 전선 그리기 ---
+        let drawingWire = null;
+        const expArea = document.getElementById('experimentArea');
+
+        function getRelativeCoords(clientX, clientY) {
+            const rect = expArea.getBoundingClientRect();
+            return { x: (clientX - rect.left) / currentScale, y: (clientY - rect.top) / currentScale };
+        }
+
+        function getCenterCoords(elementId) {
+            const el = document.getElementById(elementId);
+            const rect = el.getBoundingClientRect();
+            return getRelativeCoords(rect.left + rect.width / 2, rect.top + rect.height / 2);
+        }
+
+        function startWire(e, type) {
+            if (e.type === 'mousedown' && e.button !== 0) return;
+            if ((type === 'plus' && state.wirePlusConnected) || (type === 'minus' && state.wireMinusConnected)) return;
+            if (state.step < 4) { alert("순서에 맞게 거름종이와 질산 칼륨을 먼저 준비하세요!"); return; }
+
+            drawingWire = type;
+            const startPos = getCenterCoords('term-' + type); 
+            const line = document.getElementById('wire-' + type);
+            line.setAttribute('x1', startPos.x); line.setAttribute('y1', startPos.y);
+            line.setAttribute('x2', startPos.x); line.setAttribute('y2', startPos.y);
+            line.setAttribute('stroke-width', '8');
+            document.getElementById('wire-text-' + type).classList.add('show');
+        }
+
+        function moveWire(e) {
+            if (!drawingWire) return;
+            const pos = getEventPos(e);
+            const relPos = getRelativeCoords(pos.x, pos.y);
+            const line = document.getElementById('wire-' + drawingWire);
+            line.setAttribute('x2', relPos.x); line.setAttribute('y2', relPos.y);
+
+            const text = document.getElementById('wire-text-' + drawingWire);
+            text.setAttribute('x', (parseFloat(line.getAttribute('x1')) + relPos.x) / 2);
+            text.setAttribute('y', (parseFloat(line.getAttribute('y1')) + relPos.y) / 2 - 15);
+        }
+
+        function endWire(e) {
+            if (!drawingWire) return;
+            const pos = getEventPos(e);
+            const targetEl = document.elementFromPoint(pos.x, pos.y);
+            let connected = false;
+
+            if (drawingWire === 'plus' && targetEl && targetEl.closest('#elec-plus')) {
+                state.wirePlusConnected = true; connected = true; document.getElementById('elec-plus').classList.add('active');
+            } else if (drawingWire === 'minus' && targetEl && targetEl.closest('#elec-minus')) {
+                state.wireMinusConnected = true; connected = true; document.getElementById('elec-minus').classList.add('active');
+            }
+
+            const line = document.getElementById('wire-' + drawingWire);
+            const text = document.getElementById('wire-text-' + drawingWire);
+
+            if (connected) {
+                const endPos = getCenterCoords('elec-' + drawingWire);
+                line.setAttribute('x2', endPos.x); line.setAttribute('y2', endPos.y);
+                text.setAttribute('x', (parseFloat(line.getAttribute('x1')) + endPos.x) / 2);
+                text.setAttribute('y', (parseFloat(line.getAttribute('y1')) + endPos.y) / 2 - 15);
+                checkWireCompletion();
+            } else {
+                line.setAttribute('stroke-width', '0');
+                text.classList.remove('show');
+            }
+            drawingWire = null;
+        }
+
+        ['plus', 'minus'].forEach(type => {
+            const termGroup = document.getElementById('term-group-' + type);
+            termGroup.addEventListener('mousedown', (e) => startWire(e, type));
+            termGroup.addEventListener('touchstart', (e) => { e.preventDefault(); startWire(e, type); }, { passive: false });
+        });
+
+        document.addEventListener('mousemove', function(e) { if(drawingWire) { e.preventDefault(); moveWire(e); } }, { passive: false });
+        document.addEventListener('touchmove', function(e) { if(drawingWire) { e.preventDefault(); moveWire(e); } }, { passive: false });
+        document.addEventListener('mouseup', endWire);
+        document.addEventListener('touchend', endWire);
+
+        function checkWireCompletion() {
+            if (state.wirePlusConnected && state.wireMinusConnected && state.step === 4) {
+                document.getElementById('powerBtn').classList.add('ready');
+                completeStep(4, "5단계: 전원 장치의 15V 버튼을 눌러 전류를 흘려주세요.");
+            }
+        }
+
+        // --- 5. 전원 장치 및 이온 이동 ---
+        function togglePower() {
+            if (state.step < 5) { alert("먼저 전선을 모두 연결해야 합니다!"); return; }
+            if (state.isPowerOn) return; 
+
+            state.isPowerOn = true;
+            document.getElementById('powerSupply').classList.add('on');
+            document.getElementById('wire-layer').classList.add('power-on');
+            document.getElementById('powerText').innerText = "전원 장치 (15V 작동 중)";
+            document.getElementById('powerBtn').innerText = "전원 ON";
+            document.getElementById('powerBtn').classList.remove('ready');
+            
+            completeStep(5, "6단계: 황산 구리나 과망가니즈산 칼륨 수용액을 중앙에 떨어뜨리세요.");
+            triggerIonMovement();
+        }
+
+        function spawnIon(htmlText, cssClass, typeClass, startX, startY, endX, endY) {
+            const ion = document.createElement('div');
+            ion.className = `dynamic-ion ${cssClass} ${typeClass}`;
+            ion.innerHTML = htmlText;
+            ion.style.left = startX + '%'; ion.style.top = startY + '%';
+            ion.dataset.endX = endX; ion.dataset.endY = endY;
+
+            document.getElementById('filterPaper').appendChild(ion);
+            void ion.offsetWidth; 
+            ion.style.opacity = '1';
+
+            if (state.isPowerOn) {
+                ion.style.left = endX + '%'; ion.style.top = endY + '%';
+            }
+        }
+
+        function spawnBackgroundIons() {
+            spawnIon('K<sup>+</sup>', 'ion-k', 'bg-ion', 35, 20, 85, 15);
+            spawnIon('K<sup>+</sup>', 'ion-k', 'bg-ion', 65, 80, 85, 85);
+            spawnIon('NO<sub>3</sub><sup>-</sup>', 'ion-no3', 'bg-ion', 65, 20, 15, 15);
+            spawnIon('NO<sub>3</sub><sup>-</sup>', 'ion-no3', 'bg-ion', 35, 80, 15, 85);
+        }
+
+        function spawnSampleIons() {
+            if (state.currentSolution === 'cuso4') {
+                document.getElementById('spreadRight').classList.add('active'); 
+                spawnIon('Cu<sup>2+</sup>', 'ion-cu', 'sample-ion', 50, 40, 85, 35);
+                spawnIon('Cu<sup>2+</sup>', 'ion-cu', 'sample-ion', 50, 50, 85, 50);
+                spawnIon('Cu<sup>2+</sup>', 'ion-cu', 'sample-ion', 50, 60, 85, 65);
+                spawnIon('SO<sub>4</sub><sup>2-</sup>', 'ion-so4', 'sample-ion', 50, 35, 15, 35);
+                spawnIon('SO<sub>4</sub><sup>2-</sup>', 'ion-so4', 'sample-ion', 50, 50, 15, 50);
+                spawnIon('SO<sub>4</sub><sup>2-</sup>', 'ion-so4', 'sample-ion', 50, 65, 15, 65);
+            } else if (state.currentSolution === 'kmno4') {
+                document.getElementById('spreadLeft').classList.add('active'); 
+                spawnIon('MnO<sub>4</sub><sup>-</sup>', 'ion-mno4', 'sample-ion', 50, 40, 15, 35);
+                spawnIon('MnO<sub>4</sub><sup>-</sup>', 'ion-mno4', 'sample-ion', 50, 50, 15, 50);
+                spawnIon('MnO<sub>4</sub><sup>-</sup>', 'ion-mno4', 'sample-ion', 50, 60, 15, 65);
+                spawnIon('K<sup>+</sup>', 'ion-k', 'sample-ion', 50, 35, 85, 35);
+                spawnIon('K<sup>+</sup>', 'ion-k', 'sample-ion', 50, 50, 85, 50);
+                spawnIon('K<sup>+</sup>', 'ion-k', 'sample-ion', 50, 65, 85, 65);
+            }
+        }
+
+        function triggerIonMovement() {
+            document.querySelectorAll('.dynamic-ion').forEach(ion => {
+                ion.style.left = ion.dataset.endX + '%';
+                ion.style.top = ion.dataset.endY + '%';
+            });
+        }
+
+        function resetExperiment() {
+            state = { hasPaper: false, isWet: false, wirePlusConnected: false, wireMinusConnected: false, isPowerOn: false, currentSolution: 'none', step: 2 };
+            for(let i=2; i<=6; i++) { document.getElementById('step'+i).className = 'step'; }
+            document.getElementById('step2').classList.add('active');
+            showToast("1단계: 아래 인벤토리에서 '거름종이'를 페트리 접시 위로 드래그 하세요.");
+
+            document.getElementById('filterPaper').className = 'filter-paper';
+            document.getElementById('drop').className = 'drop-center';
+            document.getElementById('spreadRight').classList.remove('active');
+            document.getElementById('spreadLeft').classList.remove('active');
+            document.querySelectorAll('.dynamic-ion').forEach(el => el.remove());
+
+            document.getElementById('powerSupply').classList.remove('on');
+            document.getElementById('wire-layer').classList.remove('power-on');
+            document.getElementById('powerText').innerText = "전원 장치 (OFF)";
+            document.getElementById('powerBtn').innerText = "전원 켜기 (15V)";
+            document.getElementById('powerBtn').classList.remove('ready');
+            
+            document.getElementById('wire-plus').setAttribute('stroke-width', '0');
+            document.getElementById('wire-minus').setAttribute('stroke-width', '0');
+            document.getElementById('wire-text-plus').classList.remove('show');
+            document.getElementById('wire-text-minus').classList.remove('show');
+            document.getElementById('elec-plus').classList.remove('active');
+            document.getElementById('elec-minus').classList.remove('active');
+        }
+    </script>
+</body>
+</html>
